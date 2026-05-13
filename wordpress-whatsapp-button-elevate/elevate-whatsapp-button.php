@@ -3,7 +3,7 @@
  * Plugin Name: Elevate WhatsApp Button
  * Plugin URI: https://elevate-digital.example
  * Description: Floating WhatsApp button with desktop/mobile display modes and full customization.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Elevate Digital Studio
  * Author URI: https://elevate-digital.example
  * License: GPL-2.0+
@@ -16,12 +16,15 @@ if (!defined('ABSPATH')) {
 
 class Elevate_WhatsApp_Button {
     private string $option_name = 'ewb_settings';
+    private string $stats_option_name = 'ewb_click_stats';
 
     public function __construct() {
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('wp_footer', [$this, 'render_button']);
+        add_action('wp_ajax_nopriv_ewb_track_click', [$this, 'track_click']);
+        add_action('wp_ajax_ewb_track_click', [$this, 'track_click']);
     }
 
     public function add_settings_page(): void {
@@ -37,31 +40,20 @@ class Elevate_WhatsApp_Button {
     public function register_settings(): void {
         register_setting($this->option_name, $this->option_name, [$this, 'sanitize_settings']);
 
-        add_settings_section(
-            'ewb_general_section',
-            'הגדרות כלליות',
-            '__return_false',
-            'elevate-whatsapp-button'
-        );
+        add_settings_section('ewb_general_section', 'הגדרות כלליות', '__return_false', 'elevate-whatsapp-button');
 
         $fields = [
             'phone_number' => 'מספר וואטסאפ (כולל קידומת מדינה, ללא +)',
             'button_text' => 'טקסט הכפתור בדסקטופ',
-            'preset_message' => 'הודעת פתיחה',
+            'preset_message' => 'הודעת פתיחה (אפשר להשתמש במשתנה {page_url})',
+            'append_source_to_message' => 'להוסיף את כתובת העמוד אוטומטית להודעה',
             'desktop_position' => 'מיקום בדסקטופ',
             'mobile_mode' => 'תצוגה במובייל',
             'mobile_position' => 'מיקום במובייל',
         ];
 
         foreach ($fields as $field => $label) {
-            add_settings_field(
-                'ewb_' . $field,
-                $label,
-                [$this, 'render_field'],
-                'elevate-whatsapp-button',
-                'ewb_general_section',
-                ['field' => $field]
-            );
+            add_settings_field('ewb_' . $field, $label, [$this, 'render_field'], 'elevate-whatsapp-button', 'ewb_general_section', ['field' => $field]);
         }
     }
 
@@ -69,7 +61,8 @@ class Elevate_WhatsApp_Button {
         return [
             'phone_number' => preg_replace('/\D+/', '', $input['phone_number'] ?? ''),
             'button_text' => sanitize_text_field($input['button_text'] ?? 'דברו איתנו בוואטסאפ'),
-            'preset_message' => sanitize_textarea_field($input['preset_message'] ?? 'היי, אשמח לקבל פרטים נוספים.'),
+            'preset_message' => sanitize_textarea_field($input['preset_message'] ?? 'היי, אשמח לקבל פרטים נוספים. הגעתי מהעמוד: {page_url}'),
+            'append_source_to_message' => !empty($input['append_source_to_message']) ? '1' : '0',
             'desktop_position' => in_array(($input['desktop_position'] ?? ''), ['left_bottom', 'right_bottom'], true) ? $input['desktop_position'] : 'left_bottom',
             'mobile_mode' => in_array(($input['mobile_mode'] ?? ''), ['icon_only', 'full_button'], true) ? $input['mobile_mode'] : 'icon_only',
             'mobile_position' => in_array(($input['mobile_position'] ?? ''), ['left_bottom', 'center_bottom', 'right_bottom'], true) ? $input['mobile_position'] : 'center_bottom',
@@ -80,13 +73,19 @@ class Elevate_WhatsApp_Button {
         $defaults = [
             'phone_number' => '',
             'button_text' => 'דברו איתנו בוואטסאפ',
-            'preset_message' => 'היי, אשמח לקבל פרטים נוספים.',
+            'preset_message' => 'היי, אשמח לקבל פרטים נוספים. הגעתי מהעמוד: {page_url}',
+            'append_source_to_message' => '1',
             'desktop_position' => 'left_bottom',
             'mobile_mode' => 'icon_only',
             'mobile_position' => 'center_bottom',
         ];
 
         return wp_parse_args(get_option($this->option_name, []), $defaults);
+    }
+
+    private function get_click_stats(): array {
+        $defaults = ['total_clicks' => 0, 'pages' => []];
+        return wp_parse_args(get_option($this->stats_option_name, []), $defaults);
     }
 
     public function render_field(array $args): void {
@@ -97,38 +96,22 @@ class Elevate_WhatsApp_Button {
         switch ($field) {
             case 'phone_number':
             case 'button_text':
-                printf(
-                    '<input type="text" class="regular-text" name="%s" value="%s" />',
-                    esc_attr($name),
-                    esc_attr($settings[$field])
-                );
+                printf('<input type="text" class="regular-text" name="%s" value="%s" />', esc_attr($name), esc_attr($settings[$field]));
                 break;
-
+            case 'append_source_to_message':
+                printf('<label><input type="checkbox" name="%s" value="1" %s /> שלח לוואטסאפ גם את העמוד שממנו המשתמש פנה.</label>', esc_attr($name), checked('1', $settings[$field], false));
+                break;
             case 'preset_message':
-                printf(
-                    '<textarea name="%s" rows="3" class="large-text">%s</textarea>',
-                    esc_attr($name),
-                    esc_textarea($settings[$field])
-                );
+                printf('<textarea name="%s" rows="4" class="large-text">%s</textarea><p class="description">אפשר להכניס בטקסט את המשתנה <code>{page_url}</code> כדי להחליף אוטומטית לכתובת העמוד.</p>', esc_attr($name), esc_textarea($settings[$field]));
                 break;
-
             case 'desktop_position':
-                $options = ['left_bottom' => 'שמאל למטה', 'right_bottom' => 'ימין למטה'];
-                $this->render_select($name, $settings[$field], $options);
+                $this->render_select($name, $settings[$field], ['left_bottom' => 'שמאל למטה', 'right_bottom' => 'ימין למטה']);
                 break;
-
             case 'mobile_mode':
-                $options = ['icon_only' => 'אייקון בלבד', 'full_button' => 'כפתור צף עם טקסט'];
-                $this->render_select($name, $settings[$field], $options);
+                $this->render_select($name, $settings[$field], ['icon_only' => 'אייקון בלבד', 'full_button' => 'כפתור צף עם טקסט']);
                 break;
-
             case 'mobile_position':
-                $options = [
-                    'left_bottom' => 'שמאל למטה',
-                    'center_bottom' => 'ממורכז למטה',
-                    'right_bottom' => 'ימין למטה',
-                ];
-                $this->render_select($name, $settings[$field], $options);
+                $this->render_select($name, $settings[$field], ['left_bottom' => 'שמאל למטה', 'center_bottom' => 'ממורכז למטה', 'right_bottom' => 'ימין למטה']);
                 break;
         }
     }
@@ -145,6 +128,7 @@ class Elevate_WhatsApp_Button {
         if (!current_user_can('manage_options')) {
             return;
         }
+        $stats = $this->get_click_stats();
         ?>
         <div class="wrap">
             <h1>Elevate WhatsApp Button</h1>
@@ -156,6 +140,30 @@ class Elevate_WhatsApp_Button {
                 submit_button('שמירת הגדרות');
                 ?>
             </form>
+
+            <hr />
+            <h2>סטטיסטיקות קליקים</h2>
+            <p><strong>סה"כ לחיצות:</strong> <?php echo esc_html((string) $stats['total_clicks']); ?></p>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th>עמוד מקור</th>
+                        <th>מספר לחיצות</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (!empty($stats['pages'])): ?>
+                        <?php foreach ($stats['pages'] as $page_url => $count): ?>
+                            <tr>
+                                <td><code><?php echo esc_html($page_url); ?></code></td>
+                                <td><?php echo esc_html((string) $count); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr><td colspan="2">עדיין אין נתוני קליקים.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
@@ -165,12 +173,34 @@ class Elevate_WhatsApp_Button {
             return;
         }
 
-        wp_enqueue_style(
-            'elevate-whatsapp-button-style',
-            plugin_dir_url(__FILE__) . 'assets/whatsapp-button.css',
-            [],
-            '1.0.0'
-        );
+        wp_enqueue_style('elevate-whatsapp-button-style', plugin_dir_url(__FILE__) . 'assets/whatsapp-button.css', [], '1.1.0');
+        wp_enqueue_script('elevate-whatsapp-button-script', plugin_dir_url(__FILE__) . 'assets/whatsapp-button.js', [], '1.1.0', true);
+
+        wp_localize_script('elevate-whatsapp-button-script', 'ewbData', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('ewb_track_click_nonce'),
+        ]);
+    }
+
+    public function track_click(): void {
+        check_ajax_referer('ewb_track_click_nonce', 'nonce');
+
+        $source_page = isset($_POST['sourcePage']) ? esc_url_raw(wp_unslash($_POST['sourcePage'])) : '';
+        if (empty($source_page)) {
+            wp_send_json_error(['message' => 'Missing source page']);
+        }
+
+        $stats = $this->get_click_stats();
+        $stats['total_clicks'] = (int) $stats['total_clicks'] + 1;
+
+        if (!isset($stats['pages'][$source_page])) {
+            $stats['pages'][$source_page] = 0;
+        }
+        $stats['pages'][$source_page] = (int) $stats['pages'][$source_page] + 1;
+        arsort($stats['pages']);
+
+        update_option($this->stats_option_name, $stats, false);
+        wp_send_json_success(['total' => $stats['total_clicks']]);
     }
 
     public function render_button(): void {
@@ -179,17 +209,18 @@ class Elevate_WhatsApp_Button {
             return;
         }
 
-        $message = rawurlencode($settings['preset_message']);
-        $url = 'https://wa.me/' . $settings['phone_number'] . '?text=' . $message;
-
         $desktop_class = 'ewb-desktop-' . $settings['desktop_position'];
         $mobile_class = 'ewb-mobile-' . $settings['mobile_position'];
         $mode_class = 'ewb-mobile-mode-' . $settings['mobile_mode'];
+        $append_source = $settings['append_source_to_message'] === '1' ? '1' : '0';
         ?>
         <a class="ewb-button <?php echo esc_attr($desktop_class . ' ' . $mobile_class . ' ' . $mode_class); ?>"
-           href="<?php echo esc_url($url); ?>"
+           href="#"
            target="_blank"
            rel="noopener noreferrer"
+           data-phone="<?php echo esc_attr($settings['phone_number']); ?>"
+           data-message="<?php echo esc_attr($settings['preset_message']); ?>"
+           data-append-source="<?php echo esc_attr($append_source); ?>"
            aria-label="WhatsApp Contact Button">
             <span class="ewb-text"><?php echo esc_html($settings['button_text']); ?></span>
             <span class="ewb-icon" aria-hidden="true">
