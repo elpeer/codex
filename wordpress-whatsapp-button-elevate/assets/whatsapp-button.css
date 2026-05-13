@@ -1,4 +1,7 @@
 .ewb-button {
+  --ewb-desktop-font-size: 24px;
+  --ewb-mobile-font-size: 18px;
+  --ewb-icon-size: 28px;
   position: fixed;
   z-index: 9999;
   display: inline-flex;
@@ -10,17 +13,19 @@
   color: #fff;
   text-decoration: none;
   font-family: Arial, sans-serif;
-  font-size: 24px;
+  font-size: var(--ewb-desktop-font-size);
   line-height: 1;
   box-shadow: 0 12px 30px rgba(18, 184, 90, 0.28);
 }
 
 .ewb-text {
-  font-size: 30px;
+  font-size: var(--ewb-desktop-font-size);
   font-weight: 700;
 }
 
 .ewb-icon {
+  width: var(--ewb-icon-size);
+  height: var(--ewb-icon-size);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -55,4 +60,10 @@
     min-width: 260px;
     justify-content: center;
   }
+}
+
+.ewb-icon svg, .ewb-icon img { width: 100%; height: 100%; object-fit: contain; }
+
+@media (max-width: 768px) {
+  .ewb-text { font-size: var(--ewb-mobile-font-size); }
 }

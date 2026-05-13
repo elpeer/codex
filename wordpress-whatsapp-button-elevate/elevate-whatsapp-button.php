@@ -50,6 +50,11 @@ class Elevate_WhatsApp_Button {
             'desktop_position' => 'מיקום בדסקטופ',
             'mobile_mode' => 'תצוגה במובייל',
             'mobile_position' => 'מיקום במובייל',
+            'desktop_font_size' => 'גודל פונט בדסקטופ (px)',
+            'mobile_font_size' => 'גודל פונט במובייל (px)',
+            'icon_size' => 'גודל אייקון (px)',
+            'custom_icon_url' => 'כתובת אייקון מותאם (לא חובה)',
+            'custom_css' => 'CSS מותאם אישית (מתקדם)',
         ];
 
         foreach ($fields as $field => $label) {
@@ -66,6 +71,11 @@ class Elevate_WhatsApp_Button {
             'desktop_position' => in_array(($input['desktop_position'] ?? ''), ['left_bottom', 'right_bottom'], true) ? $input['desktop_position'] : 'left_bottom',
             'mobile_mode' => in_array(($input['mobile_mode'] ?? ''), ['icon_only', 'full_button'], true) ? $input['mobile_mode'] : 'icon_only',
             'mobile_position' => in_array(($input['mobile_position'] ?? ''), ['left_bottom', 'center_bottom', 'right_bottom'], true) ? $input['mobile_position'] : 'center_bottom',
+            'desktop_font_size' => max(12, min(48, intval($input['desktop_font_size'] ?? 24))),
+            'mobile_font_size' => max(12, min(48, intval($input['mobile_font_size'] ?? 18))),
+            'icon_size' => max(16, min(64, intval($input['icon_size'] ?? 28))),
+            'custom_icon_url' => esc_url_raw($input['custom_icon_url'] ?? ''),
+            'custom_css' => sanitize_textarea_field($input['custom_css'] ?? ''),
         ];
     }
 
@@ -78,6 +88,11 @@ class Elevate_WhatsApp_Button {
             'desktop_position' => 'left_bottom',
             'mobile_mode' => 'icon_only',
             'mobile_position' => 'center_bottom',
+            'desktop_font_size' => 24,
+            'mobile_font_size' => 18,
+            'icon_size' => 28,
+            'custom_icon_url' => '',
+            'custom_css' => '',
         ];
 
         return wp_parse_args(get_option($this->option_name, []), $defaults);
@@ -112,6 +127,17 @@ class Elevate_WhatsApp_Button {
                 break;
             case 'mobile_position':
                 $this->render_select($name, $settings[$field], ['left_bottom' => 'שמאל למטה', 'center_bottom' => 'ממורכז למטה', 'right_bottom' => 'ימין למטה']);
+                break;
+            case 'desktop_font_size':
+            case 'mobile_font_size':
+            case 'icon_size':
+                printf('<input type="number" min="12" max="64" step="1" class="small-text" name="%s" value="%s" /> px', esc_attr($name), esc_attr((string) $settings[$field]));
+                break;
+            case 'custom_icon_url':
+                printf('<input type="url" class="regular-text" name="%s" value="%s" placeholder="https://..." /><p class="description">אפשר לשים URL לאייקון מותאם (PNG/SVG).</p>', esc_attr($name), esc_attr($settings[$field]));
+                break;
+            case 'custom_css':
+                printf('<textarea name="%s" rows="6" class="large-text code">%s</textarea><p class="description">CSS מתקדם לעיצוב הכפתור בדסקטופ/מובייל.</p>', esc_attr($name), esc_textarea($settings[$field]));
                 break;
         }
     }
@@ -213,6 +239,7 @@ class Elevate_WhatsApp_Button {
         $mobile_class = 'ewb-mobile-' . $settings['mobile_position'];
         $mode_class = 'ewb-mobile-mode-' . $settings['mobile_mode'];
         $append_source = $settings['append_source_to_message'] === '1' ? '1' : '0';
+        $custom_icon_url = !empty($settings['custom_icon_url']) ? esc_url($settings['custom_icon_url']) : '';
         ?>
         <a class="ewb-button <?php echo esc_attr($desktop_class . ' ' . $mobile_class . ' ' . $mode_class); ?>"
            href="#"
@@ -221,15 +248,23 @@ class Elevate_WhatsApp_Button {
            data-phone="<?php echo esc_attr($settings['phone_number']); ?>"
            data-message="<?php echo esc_attr($settings['preset_message']); ?>"
            data-append-source="<?php echo esc_attr($append_source); ?>"
+           style="--ewb-desktop-font-size: <?php echo esc_attr((string) $settings['desktop_font_size']); ?>px; --ewb-mobile-font-size: <?php echo esc_attr((string) $settings['mobile_font_size']); ?>px; --ewb-icon-size: <?php echo esc_attr((string) $settings['icon_size']); ?>px;"
            aria-label="WhatsApp Contact Button">
             <span class="ewb-text"><?php echo esc_html($settings['button_text']); ?></span>
             <span class="ewb-icon" aria-hidden="true">
+                <?php if (!empty($custom_icon_url)): ?>
+                    <img src="<?php echo $custom_icon_url; ?>" alt="" />
+                <?php else: ?>
                 <svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M19.11 17.18c-.26-.13-1.53-.75-1.77-.84-.24-.09-.42-.13-.59.13-.17.26-.68.84-.83 1.01-.15.17-.3.2-.56.07-.26-.13-1.11-.41-2.11-1.3-.78-.69-1.31-1.53-1.46-1.79-.15-.26-.02-.4.11-.53.11-.11.26-.3.39-.45.13-.15.17-.26.26-.43.09-.17.04-.32-.02-.45-.07-.13-.59-1.43-.81-1.95-.21-.51-.43-.44-.59-.45-.15-.01-.32-.01-.49-.01-.17 0-.45.07-.69.32-.24.26-.91.89-.91 2.16s.93 2.51 1.06 2.68c.13.17 1.82 2.78 4.42 3.89.62.27 1.11.43 1.49.55.63.2 1.21.17 1.67.1.51-.08 1.53-.62 1.75-1.22.22-.6.22-1.11.15-1.22-.06-.11-.24-.17-.5-.3z" fill="currentColor"/>
                     <path d="M16 3C8.84 3 3 8.84 3 16c0 2.57.75 5.08 2.17 7.24L3.2 29l5.95-1.91A12.9 12.9 0 0016 29c7.16 0 13-5.84 13-13S23.16 3 16 3zm0 23.4c-2.09 0-4.13-.56-5.92-1.63l-.42-.25-3.53 1.13 1.15-3.44-.27-.44A10.35 10.35 0 015.6 16C5.6 10.23 10.23 5.6 16 5.6S26.4 10.23 26.4 16 21.77 26.4 16 26.4z" fill="currentColor"/>
                 </svg>
+                <?php endif; ?>
             </span>
         </a>
+        <?php if (!empty($settings['custom_css'])): ?>
+            <style id="ewb-custom-css"><?php echo esc_html($settings['custom_css']); ?></style>
+        <?php endif; ?>
         <?php
     }
 }
